@@ -4390,7 +4390,7 @@ namespace stdexec {
             template <class _CPO>
             friend __scheduler
               tag_invoke(get_completion_scheduler_t<_CPO>, const __env& __self) noexcept {
-              return __scheduler{__self.__loop_};
+              return __self.__loop_->get_scheduler();
             }
           };
 
