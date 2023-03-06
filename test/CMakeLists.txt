@@ -61,9 +61,11 @@ set(stdexec_test_sources
     stdexec/queries/test_forwarding_queries.cpp
     exec/test_any_sender.cpp
     exec/test_task.cpp
+    exec/test_variant_sender.cpp
     exec/test_type_async_scope.cpp
     exec/test_create.cpp
     exec/test_env.cpp
+    exec/test_finally.cpp
     exec/test_on.cpp
     exec/test_on2.cpp
     exec/test_on3.cpp
