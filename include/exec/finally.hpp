@@ -162,10 +162,12 @@ namespace exec {
         template <class _Tag, __decays_to<__t> _Self, class... _Args>
           requires __callable<_Tag, _Receiver&&, _Args...>
         friend void tag_invoke(_Tag __tag, _Self&& __self, _Args&&... __args) noexcept {
+          // Cache this locally in case *this is destroyed by the next call
+          __base_op_t* __op = __self.__op_;
           try {
-            __self.__op_->__store_result_and_start_next_op(__tag, (_Args&&) __args...);
+            __op->__store_result_and_start_next_op(__tag, (_Args&&) __args...);
           } catch (...) {
-            set_error((_Receiver&&) __self.__op_->__receiver_, std::current_exception());
+            set_error((_Receiver&&) __op->__receiver_, std::current_exception());
           }
         }
 
