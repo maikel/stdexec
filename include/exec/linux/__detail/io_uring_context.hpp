@@ -87,7 +87,7 @@ namespace exec { namespace __io_uring {
     return reinterpret_cast<_Ty>(static_cast<std::byte*>(__pointer) + __offset);
   }
 
-  __completion_queue::__completion_queue(
+  inline __completion_queue::__completion_queue(
     const memory_mapped_region& __region,
     const ::io_uring_params& __params)
     : __head_{*__at_offset_as<__u32*>(__region.data(), __params.cq_off.head)}
@@ -118,7 +118,7 @@ namespace exec { namespace __io_uring {
     return __count;
   }
 
-  __submission_queue::__submission_queue(
+  inline __submission_queue::__submission_queue(
     const memory_mapped_region& __region,
     const memory_mapped_region& __sqes_region,
     const ::io_uring_params& __params)
@@ -183,11 +183,11 @@ namespace exec { namespace __io_uring {
     return __result;
   }
 
-  bool __wakeup_operation::__ready_(__task*) noexcept {
+  inline bool __wakeup_operation::__ready_(__task*) noexcept {
     return false;
   }
 
-  void __wakeup_operation::__submit_(__task* __pointer, ::io_uring_sqe& __entry) noexcept {
+  inline void __wakeup_operation::__submit_(__task* __pointer, ::io_uring_sqe& __entry) noexcept {
     __wakeup_operation& __self = *static_cast<__wakeup_operation*>(__pointer);
     std::memset(&__entry, 0, sizeof(__entry));
     __entry.fd = __self.__eventfd_;
@@ -201,21 +201,20 @@ namespace exec { namespace __io_uring {
 #endif
   }
 
-  void __wakeup_operation::__complete_(__task* __pointer, const ::io_uring_cqe& __entry) noexcept {
+  inline void
+    __wakeup_operation::__complete_(__task* __pointer, const ::io_uring_cqe& __entry) noexcept {
     __wakeup_operation& __self = *static_cast<__wakeup_operation*>(__pointer);
     __self.start();
   }
 
-  __wakeup_operation::__wakeup_operation(__context* __context, int __eventfd)
+  inline __wakeup_operation::__wakeup_operation(__context* __context, int __eventfd)
     : __task{__vtable}
     , __context_{__context}
     , __eventfd_{__eventfd} {
   }
 
-  void __wakeup_operation::start() noexcept {
-    if (
-      !__context_->__break_loop_.load(std::memory_order_acquire)
-      && !__context_->__stop_source_->stop_requested()) {
+  inline void __wakeup_operation::start() noexcept {
+    if (!__context_->__stop_source_->stop_requested()) {
       __context_->__pending_.push_front(this);
     }
   }
@@ -225,6 +224,7 @@ namespace exec { namespace __io_uring {
     , __completion_queue_{__completion_queue_region_ ? __completion_queue_region_ : __submission_queue_region_, __params_}
     , __submission_queue_{__submission_queue_region_, __submission_queue_entries_, __params_}
     , __wakeup_operation_{this, __eventfd_} {
+    __wakeup_operation_.start();
   }
 
   inline void __context::wakeup() {
@@ -323,11 +323,13 @@ namespace exec { namespace __io_uring {
     scope_guard __not_running{[&]() noexcept {
       __is_running_.store(false, std::memory_order_relaxed);
     }};
-    __wakeup_operation_.start();
     __pending_.append(__requests_.pop_all());
     while (__n_submitted_ > 0 || !__pending_.empty()) {
       run_some();
-      if (__n_submitted_ == 0) {
+      if (
+        __n_submitted_ == 0
+        || (__n_submitted_ == 1 && __break_loop_.load(std::memory_order_acquire))) {
+        __break_loop_.store(false, std::memory_order_relaxed);
         break;
       }
       constexpr int __min_complete = 1;
@@ -339,8 +341,9 @@ namespace exec { namespace __io_uring {
       STDEXEC_ASSERT(0 <= __n_submitted_);
       __pending_.append(__requests_.pop_all());
     }
-    STDEXEC_ASSERT(__n_submitted_ == 0);
+    STDEXEC_ASSERT(__n_submitted_ <= 1);
     if (__stop_source_->stop_requested() && __pending_.empty()) {
+      STDEXEC_ASSERT(__n_submitted_ == 0);
       // try to shutdown the request queue
       int __n_in_flight_expected = 0;
       while (!__n_submissions_in_flight_.compare_exchange_weak(
