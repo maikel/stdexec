@@ -78,6 +78,7 @@ set(stdexec_test_sources
     exec/test_at_coroutine_exit.cpp
     exec/test_materialize.cpp
     exec/test_io_uring_context.cpp
+    exec/test_io_uring_operations.cpp
     $<$<BOOL:${STDEXEC_ENABLE_TBB}>:tbbexec/test_tbb_thread_pool.cpp>
     )
 

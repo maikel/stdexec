@@ -155,11 +155,6 @@ namespace exec::__io_uring {
           , __fd_{__fd} {
         }
 
-        template <stdexec::__decays_to<__impl> _Self>
-        static stdexec::__copy_cvref_t<_Self, _Receiver> receiver(_Self&& __self) noexcept {
-          return ((_Self&&) __self).__receiver_;
-        }
-
         static constexpr std::false_type ready() noexcept {
           return {};
         }
@@ -210,7 +205,7 @@ namespace exec::__io_uring {
     };
   }
 
-  inline __close::__sender tag_invoke(async_close_t, handle __h) noexcept {
+  inline __close::__sender tag_invoke(async_close_t, const handle& __h) noexcept {
     return __close::__sender{__h.get_scheduler(), __h.native_handle()};
   }
 }

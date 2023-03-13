@@ -25,12 +25,12 @@ using namespace exec;
 
 TEST_CASE("Open temporary file", "[io_uring]") {
   io_uring_context __context{};
-
-  auto open_file = async_open(
-    __context.get_scheduler(), "/tmp", O_TMPFILE | O_RDWR, S_IRUSR | S_IWUSR);
-  __debug_sender(open_file);
-  auto [h] = sync_wait(open_file).value();
+  auto [h] = __context
+               .sync_wait(async_open(
+                 __context.get_scheduler(), "/tmp", O_TMPFILE | O_RDWR, S_IRUSR | S_IWUSR))
+               .value();
   CHECK(h.native_handle() > 0);
+  __context.sync_wait(async_close(h));
 }
 
 #endif
