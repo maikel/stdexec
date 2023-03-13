@@ -21,6 +21,9 @@
 
 #include <unistd.h>
 #include <fcntl.h>
+#include <sys/uio.h>
+
+#include <span>
 
 namespace exec::__io_uring {
   class handle {
@@ -151,7 +154,7 @@ namespace exec::__io_uring {
         int __fd_;
 
         explicit __impl(int __fd, __context& __ctx, _Receiver&& __receiver)
-          : __stoppable_op_base<_Receiver>(__ctx, __receiver)
+          : __stoppable_op_base<_Receiver>{__ctx, __receiver}
           , __fd_{__fd} {
         }
 
@@ -207,5 +210,191 @@ namespace exec::__io_uring {
 
   inline __close::__sender tag_invoke(async_close_t, const handle& __h) noexcept {
     return __close::__sender{__h.get_scheduler(), __h.native_handle()};
+  }
+
+  namespace __read {
+    template <class _ReceiverId>
+    struct __operation {
+      using _Receiver = stdexec::__t<_ReceiverId>;
+
+      struct __impl : __stoppable_op_base<_Receiver> {
+        int __fd_;
+        std::span<::iovec> __iovs_;
+        ::off_t __offset_;
+
+        explicit __impl(
+          int __fd,
+          std::span<::iovec> __iovs,
+          ::off_t __offset,
+          __context& __ctx,
+          _Receiver&& __receiver)
+          : __stoppable_op_base<_Receiver>{__ctx, __receiver}
+          , __fd_{__fd}
+          , __iovs_{__iovs}
+          , __offset_{__offset} {
+        }
+
+        static constexpr std::false_type ready() noexcept {
+          return {};
+        }
+
+        void submit(::io_uring_sqe& __sqe) const noexcept {
+          __sqe = ::io_uring_sqe{};
+          __sqe.opcode = IORING_OP_READV;
+          __sqe.fd = __fd_;
+          __sqe.addr = bit_cast<__u64>(__iovs_.data());
+          __sqe.len = __iovs_.size();
+          __sqe.off = __offset_;
+        }
+
+        void complete(const ::io_uring_cqe& __cqe) noexcept {
+          if (__cqe.res >= 0) {
+            stdexec::set_value((_Receiver&&) this->__receiver_, __cqe.res);
+          } else {
+            stdexec::set_error(
+              (_Receiver&&) this->__receiver_,
+              std::make_exception_ptr(std::system_error(-__cqe.res, std::system_category())));
+          }
+        }
+      };
+
+      using __t = __stoppable_task_facade_t<__impl>;
+    };
+
+    template <class _Receiver>
+    using __operation_t = stdexec::__t<__operation<stdexec::__id<_Receiver>>>;
+
+    struct __sender {
+      using completion_signatures = stdexec::completion_signatures<
+        stdexec::set_value_t(std::int32_t),
+        stdexec::set_stopped_t(),
+        stdexec::set_error_t(std::exception_ptr)>;
+
+      io_uring_scheduler __sched_;
+      int __fd_;
+      std::span<::iovec> __iovs_;
+      ::off_t __offset_;
+
+      __sender(io_uring_scheduler __sched, int __fd, std::span<::iovec> __iovs, ::off_t __offset)
+        : __sched_{__sched}
+        , __fd_{__fd}
+        , __iovs_{__iovs}
+        , __offset_{__offset} {
+      }
+
+      template <
+        stdexec::__decays_to<__sender> _Self,
+        stdexec::receiver_of<completion_signatures> _Receiver>
+      friend __operation_t<_Receiver>
+        tag_invoke(stdexec::connect_t, _Self&& __self, _Receiver&& __receiver) noexcept {
+        return __operation_t<_Receiver>{
+          __self.__fd_,
+          __self.__iovs_,
+          __self.__offset_,
+          *__self.__sched_.__context_,
+          (_Receiver&&) __receiver};
+      }
+    };
+  }
+
+  inline __read::__sender tag_invoke(
+    async_read_some_t,
+    const handle& __h,
+    std::span<::iovec> __iovs,
+    ::off_t __offset = -1) noexcept {
+    return __read::__sender{__h.get_scheduler(), __h.native_handle(), __iovs, __offset};
+  }
+
+  namespace __write {
+    template <class _ReceiverId>
+    struct __operation {
+      using _Receiver = stdexec::__t<_ReceiverId>;
+
+      struct __impl : __stoppable_op_base<_Receiver> {
+        int __fd_;
+        std::span<::iovec> __iovs_;
+        ::off_t __offset_;
+
+        explicit __impl(
+          int __fd,
+          std::span<::iovec> __iovs,
+          ::off_t __offset,
+          __context& __ctx,
+          _Receiver&& __receiver)
+          : __stoppable_op_base<_Receiver>{__ctx, __receiver}
+          , __fd_{__fd}
+          , __iovs_{__iovs}
+          , __offset_{__offset} {
+        }
+
+        static constexpr std::false_type ready() noexcept {
+          return {};
+        }
+
+        void submit(::io_uring_sqe& __sqe) const noexcept {
+          __sqe = ::io_uring_sqe{};
+          __sqe.opcode = IORING_OP_WRITEV;
+          __sqe.fd = __fd_;
+          __sqe.addr = bit_cast<__u64>(__iovs_.data());
+          __sqe.len = __iovs_.size();
+          __sqe.off = __offset_;
+        }
+
+        void complete(const ::io_uring_cqe& __cqe) noexcept {
+          if (__cqe.res >= 0) {
+            stdexec::set_value((_Receiver&&) this->__receiver_, __cqe.res);
+          } else {
+            stdexec::set_error(
+              (_Receiver&&) this->__receiver_,
+              std::make_exception_ptr(std::system_error(-__cqe.res, std::system_category())));
+          }
+        }
+      };
+
+      using __t = __stoppable_task_facade_t<__impl>;
+    };
+
+    template <class _Receiver>
+    using __operation_t = stdexec::__t<__operation<stdexec::__id<_Receiver>>>;
+
+    struct __sender {
+      using completion_signatures = stdexec::completion_signatures<
+        stdexec::set_value_t(std::int32_t),
+        stdexec::set_stopped_t(),
+        stdexec::set_error_t(std::exception_ptr)>;
+
+      io_uring_scheduler __sched_;
+      int __fd_;
+      std::span<::iovec> __iovs_;
+      ::off_t __offset_;
+
+      __sender(io_uring_scheduler __sched, int __fd, std::span<::iovec> __iovs, ::off_t __offset)
+        : __sched_{__sched}
+        , __fd_{__fd}
+        , __iovs_{__iovs}
+        , __offset_{__offset} {
+      }
+
+      template <
+        stdexec::__decays_to<__sender> _Self,
+        stdexec::receiver_of<completion_signatures> _Receiver>
+      friend __operation_t<_Receiver>
+        tag_invoke(stdexec::connect_t, _Self&& __self, _Receiver&& __receiver) noexcept {
+        return __operation_t<_Receiver>{
+          __self.__fd_,
+          __self.__iovs_,
+          __self.__offset_,
+          *__self.__sched_.__context_,
+          (_Receiver&&) __receiver};
+      }
+    };
+  }
+
+  inline __write::__sender tag_invoke(
+    async_write_some_t,
+    const handle& __h,
+    std::span<::iovec> __iovs,
+    ::off_t __offset = -1) noexcept {
+    return __write::__sender{__h.get_scheduler(), __h.native_handle(), __iovs, __offset};
   }
 }
