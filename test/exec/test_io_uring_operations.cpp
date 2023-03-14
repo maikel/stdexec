@@ -80,26 +80,19 @@ namespace {
 
 TEST_CASE("Coro Write and Read temporary file", "[io_uring][io_uring_operations]") {
   io_uring_context context{};
-  std::jthread thread{[&] {
-    context.run();
-  }};
-  {
-    scope_guard guard{[&]() noexcept {
-      context.request_stop();
-    }};
-    std::string_view data{"Hello, World!"};
-    char buffer[1024];
-    std::array<::iovec, 1> wbuf{
-      ::iovec{.iov_base = const_cast<char*>(data.data()), .iov_len = data.size()}
-    };
-    std::array<::iovec, 1> rbuf{
-      ::iovec{.iov_base = buffer, .iov_len = sizeof(buffer)}
-    };
-    auto [result] = sync_wait(coro_write_and_read(context.get_scheduler(), wbuf, rbuf)).value();
-    auto [written, read] = result;
-    CHECK(written == static_cast<int>(data.size()));
-    CHECK(read == static_cast<int>(data.size()));
-  }
+  std::string_view data{"Hello, World!"};
+  char buffer[1024];
+  std::array<::iovec, 1> wbuf{
+    ::iovec{.iov_base = const_cast<char*>(data.data()), .iov_len = data.size()}
+  };
+  std::array<::iovec, 1> rbuf{
+    ::iovec{.iov_base = buffer, .iov_len = sizeof(buffer)}
+  };
+  auto [result] =
+    sync_wait(context, coro_write_and_read(context.get_scheduler(), wbuf, rbuf)).value();
+  auto [written, read] = result;
+  CHECK(written == static_cast<int>(data.size()));
+  CHECK(read == static_cast<int>(data.size()));
 }
 
 #endif
