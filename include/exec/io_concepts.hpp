@@ -70,4 +70,24 @@ namespace exec {
 
   using __async_write_some::async_write_some_t;
   inline constexpr async_write_some_t async_write_some{};
+
+  template <class _Sender, class _Env = stdexec::no_env>
+  concept __sender_of_integer = stdexec::__single_typed_sender<_Sender, _Env>
+                             && std::integral<stdexec::__single_sender_value_t<_Sender, _Env>>;
+
+  template <class _Resource>
+  concept io_resource = requires(_Resource& __res) {
+    { async_close(__res) } -> stdexec::sender_of<stdexec::set_value_t()>;
+    { async_read_some(__res) } -> __sender_of_integer;
+    { async_write_some(__res) } -> __sender_of_integer;
+  };
+
+  template <class _Sender, class _Env = stdexec::no_env>
+  concept __sender_of_io_resoruce = stdexec::__single_typed_sender<_Sender, _Env>
+                                 && io_resource<stdexec::__single_sender_value_t<_Sender, _Env>>;
+
+  template <class _Scheduler>
+  concept io_scheduler = requires(_Scheduler& __sched) {
+    { async_open(__sched) } -> __sender_of_io_resoruce;
+  };
 }
