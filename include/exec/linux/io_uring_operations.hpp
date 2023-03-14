@@ -33,17 +33,6 @@ namespace exec::__io_uring {
       , __fd_{__fd} {
     }
 
-    handle(handle&& __other) noexcept
-      : __sched_{__other.__sched_}
-      , __fd_{std::exchange(__other.__fd_, -1)} {
-    }
-
-    handle& operator=(handle&& __other) noexcept {
-      __sched_ = __other.__sched_;
-      __fd_ = std::exchange(__other.__fd_, -1);
-      return *this;
-    }
-
     int native_handle() const noexcept {
       return __fd_;
     }
@@ -91,7 +80,6 @@ namespace exec::__io_uring {
         };
 
         void complete(const ::io_uring_cqe& __cqe) noexcept {
-
           if (__cqe.res >= 0) {
             stdexec::set_value(
               (_Receiver&&) this->__receiver_, handle(this->context().get_scheduler(), __cqe.res));
