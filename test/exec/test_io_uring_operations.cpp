@@ -28,7 +28,7 @@
 using namespace stdexec;
 using namespace exec;
 
-TEST_CASE("Open temporary file", "[io_uring][io_uring_operations]") {
+TEST_CASE("io_uring_context Open temporary file", "[io_uring][io_uring_operations]") {
   io_uring_context context{};
   start_detached(
     async_open(context.get_scheduler(), "/tmp", O_TMPFILE | O_RDWR, S_IRUSR | S_IWUSR)
@@ -39,7 +39,7 @@ TEST_CASE("Open temporary file", "[io_uring][io_uring_operations]") {
   context.run_until_empty();
 }
 
-TEST_CASE("Write and Read temporary file", "[io_uring][io_uring_operations]") {
+TEST_CASE("io_uring_context Write and Read temporary file", "[io_uring][io_uring_operations]") {
   io_uring_context context{};
   std::string_view data{"Hello, World!"};
   char buffer[1024];
@@ -81,8 +81,11 @@ namespace {
   }
 } // namespace
 
-TEST_CASE("Coro Write and Read temporary file", "[io_uring][io_uring_operations]") {
+TEST_CASE(
+  "io_uring_context Coro Write and Read temporary file",
+  "[io_uring][io_uring_operations]") {
   io_uring_context context{};
+  io_uring_scheduler sched{context.get_scheduler()};
   std::string_view data{"Hello, World!"};
   char buffer[1024];
   std::array<::iovec, 1> wbuf{
@@ -91,13 +94,11 @@ TEST_CASE("Coro Write and Read temporary file", "[io_uring][io_uring_operations]
   std::array<::iovec, 1> rbuf{
     ::iovec{.iov_base = buffer, .iov_len = sizeof(buffer)}
   };
-  start_detached(on(
-    context.get_scheduler(),
-    coro_write_and_read(context.get_scheduler(), wbuf, rbuf) | then([&data](auto result) {
-      auto [written, read] = result;
-      CHECK(written == static_cast<int>(data.size()));
-      CHECK(read == static_cast<int>(data.size()));
-    })));
+  start_detached(on(sched, coro_write_and_read(sched, wbuf, rbuf) | then([&data](auto result) {
+                             auto [written, read] = result;
+                             CHECK(written == static_cast<int>(data.size()));
+                             CHECK(read == static_cast<int>(data.size()));
+                           })));
   context.run_until_empty();
 }
 
