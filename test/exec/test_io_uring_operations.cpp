@@ -30,12 +30,13 @@ using namespace exec;
 
 TEST_CASE("Open temporary file", "[io_uring][io_uring_operations]") {
   io_uring_context context{};
-  auto [h] =
-    sync_wait(
-      context, async_open(context.get_scheduler(), "/tmp", O_TMPFILE | O_RDWR, S_IRUSR | S_IWUSR))
-      .value();
-  CHECK(h.native_handle() > 0);
-  sync_wait(context, async_close(h));
+  start_detached(
+    async_open(context.get_scheduler(), "/tmp", O_TMPFILE | O_RDWR, S_IRUSR | S_IWUSR)
+    | let_value([](auto h) {
+        CHECK(h.native_handle() > 0);
+        return async_close(h);
+      }));
+  context.run_until_empty();
 }
 
 TEST_CASE("Write and Read temporary file", "[io_uring][io_uring_operations]") {
@@ -60,9 +61,11 @@ TEST_CASE("Write and Read temporary file", "[io_uring][io_uring_operations]") {
                            }),
                        async_close(handle));
                    });
-  auto [written, read] = sync_wait(context, algorithm).value();
-  CHECK(written == static_cast<int>(data.size()));
-  CHECK(read == static_cast<int>(data.size()));
+  start_detached(algorithm | then([&](int written, int read) {
+                   CHECK(written == static_cast<int>(data.size()));
+                   CHECK(read == static_cast<int>(data.size()));
+                 }));
+  context.run_until_empty();
 }
 
 namespace {
@@ -88,11 +91,14 @@ TEST_CASE("Coro Write and Read temporary file", "[io_uring][io_uring_operations]
   std::array<::iovec, 1> rbuf{
     ::iovec{.iov_base = buffer, .iov_len = sizeof(buffer)}
   };
-  auto [result] =
-    sync_wait(context, coro_write_and_read(context.get_scheduler(), wbuf, rbuf)).value();
-  auto [written, read] = result;
-  CHECK(written == static_cast<int>(data.size()));
-  CHECK(read == static_cast<int>(data.size()));
+  start_detached(on(
+    context.get_scheduler(),
+    coro_write_and_read(context.get_scheduler(), wbuf, rbuf) | then([&data](auto result) {
+      auto [written, read] = result;
+      CHECK(written == static_cast<int>(data.size()));
+      CHECK(read == static_cast<int>(data.size()));
+    })));
+  context.run_until_empty();
 }
 
 #endif
