@@ -16,6 +16,8 @@
 
 set(stdexec_test_sources
     test_main.cpp
+    net/ip/test_address.cpp
+    net/ip/test_resolve.cpp
     stdexec/cpos/test_cpo_bulk.cpp
     stdexec/cpos/test_cpo_ensure_started.cpp
     stdexec/cpos/test_cpo_receiver.cpp
@@ -79,6 +81,7 @@ set(stdexec_test_sources
     exec/test_at_coroutine_exit.cpp
     exec/test_materialize.cpp
     exec/test_io_uring_context.cpp
+    # exec/test_file_handle.cpp
     exec/test_trampoline_scheduler.cpp
     exec/test_sequence_senders.cpp
     exec/sequence/test_async_resource.cpp
