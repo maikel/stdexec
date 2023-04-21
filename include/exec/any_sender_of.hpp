@@ -428,7 +428,7 @@ namespace exec {
       const __vtable_t* __vtable_{__default_storage_vtable((__vtable_t*) nullptr)};
       void* __object_pointer_{nullptr};
       alignas(__alignment) std::byte __buffer_[__buffer_size]{};
-      [[no_unique_address]] _Allocator __allocator_{};
+      STDEXEC_NO_UNIQUE_ADDRESS _Allocator __allocator_{};
     };
 
     template <class _VTable, class _Allocator = std::allocator<std::byte>>
@@ -563,7 +563,7 @@ namespace exec {
         }
 
        private:
-        _Receiver __rec_;
+        STDEXEC_NO_UNIQUE_ADDRESS _Receiver __rec_;
         __unique_operation_storage __storage_{};
 
         friend void tag_invoke(start_t, __t& __self) noexcept {
@@ -576,8 +576,8 @@ namespace exec {
     template <class _Queries>
     class __query_vtable;
 
-    template <template <class...> class _L, typename... _Queries>
-    class __query_vtable<_L<_Queries...>> : public __query_vfun<_Queries>... {
+    template <template <class...> class _List, typename... _Queries>
+    class __query_vtable<_List<_Queries...>> : public __query_vfun<_Queries>... {
      public:
       using __query_vfun<_Queries>::operator()...;
      private:

@@ -609,7 +609,7 @@ namespace exec {
       __io_task<_Op> &&        //
       requires(_Op& __op) {
         {
-          __op.receiver()
+          ((_Op&&) __op).receiver()
         } noexcept
           -> stdexec::receiver_of< stdexec::completion_signatures<stdexec::set_stopped_t()>>;
       };
@@ -673,7 +673,7 @@ namespace exec {
 
       struct __impl {
         __context& __context_;
-        [[no_unique_address]] _Receiver __receiver_;
+        STDEXEC_NO_UNIQUE_ADDRESS _Receiver __receiver_;
 
         __impl(__context& __context, _Receiver&& __receiver)
           : __context_{__context}
