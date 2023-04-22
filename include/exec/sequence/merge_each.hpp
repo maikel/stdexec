@@ -51,7 +51,7 @@ namespace exec {
     struct __item_operation_base {
       __operation_base<_Receiver, _ErrorsVariant>* __parent_op_;
       _ItemReceiver __item_rcvr_;
-      std::optional<std::in_place_stop_callback<__on_stop_requested>> __on_parent_stop_{};
+      std::optional<stdexec::in_place_stop_callback<__on_stop_requested>> __on_parent_stop_{};
       std::optional<typename stop_token_of_t<env_of_t<_ItemReceiver>>::template callback_type<
         __on_stop_requested>>
         __on_item_rcvr_stop_{};
@@ -76,7 +76,7 @@ namespace exec {
         template <__one_of<set_value_t, set_stopped_t> _Tag, same_as<__t> _Self>
           requires __callable<_Tag, _ItemReceiver&&>
         friend void tag_invoke(_Tag, _Self&& __self) noexcept {
-                    __self.__op_->__on_parent_stop_.reset();
+          __self.__op_->__on_parent_stop_.reset();
           __self.__op_->__on_item_rcvr_stop_.reset();
           _Tag{}(static_cast<_ItemReceiver&&>(__self.__op_->__item_rcvr_));
         }
@@ -159,17 +159,21 @@ namespace exec {
       using __receive_subsequence_op_t = connect_result_t<_Item, __item_receiver_t>;
 
       template <class _Subseq>
-      using __subsequence_operation = sequence_connect_result_t<_Subseq, __subsequence_receiver_t>;
+      using __subsequence_operation_t =
+        sequence_connect_result_t< _Subseq, __subsequence_receiver_t>;
 
       using __subsequence_operation_variant = __mapply<
-        __transform<__q<__subsequence_operation>, __nullable_variant_t>,
+        __transform<__q<__subsequence_operation_t>, __nullable_variant_t>,
         __value_types_of_t<_Item, env_of_t<_Receiver>, __q<__mfront>, __q<__types>>>;
 
       explicit __t(
         _Item&& __sndr,
         _ItemReceiver&& __rcvr,
         __operation_base<_Receiver, _ErrorsVariant>* __op)
-        : __item_operation_base<_ItemReceiver, _Receiver, _ErrorsVariant>{}
+        : __item_operation_base<
+          _ItemReceiver,
+          _Receiver,
+          _ErrorsVariant>{__op, static_cast<_ItemReceiver&&>(__rcvr)}
         , __sub_op_{std::in_place_index<0>, __conv{[&] {
                       return stdexec::connect(
                         static_cast<_Item&&>(__sndr), __item_receiver_t{this});
@@ -180,11 +184,11 @@ namespace exec {
       stdexec::in_place_stop_source __source_{};
 
       template <class _Subsequence>
-      void __start_subsequence(_Subsequence&& __subsequence) noexcept {
+      void __start_subsequence(_Subsequence __subsequence) noexcept {
         __subsequence_operation_variant& __ops_variant = __sub_op_.template emplace<1>();
         try {
-          auto& __second_op = __ops_variant.template emplace<__subsequence_operation<_Subsequence>>(
-            __conv{[&] {
+          auto& __second_op =
+            __ops_variant.template emplace<__subsequence_operation_t<_Subsequence>>(__conv{[&] {
               return exec::sequence_connect(
                 static_cast<_Subsequence&&>(__subsequence), __subsequence_receiver_t{this});
             }});
@@ -227,7 +231,15 @@ namespace exec {
         using completion_signatures =
           stdexec::completion_signatures<set_value_t(), set_stopped_t()>;
 
+        template <class _Self, class _ItemReceiver>
+        using __item_receiver_t = stdexec::__t<__item_receiver<
+          __copy_cvref_t<_Self, _Item>,
+          stdexec::__id<__decay_t<_ItemReceiver>>,
+          _ReceiverId,
+          _ErrorsVariant>>;
+
         template <__decays_to<__t> _Self, class _ItemReceiver>
+          requires sender_to<_Item, __item_receiver_t<_Self, _ItemReceiver>>
         friend auto tag_invoke(connect_t, _Self&& __self, _ItemReceiver&& __item_rcvr) noexcept
           -> __sub_op_t<_Self, _ItemReceiver> {
           return __sub_op_t<_Self, _ItemReceiver>{
@@ -374,6 +386,9 @@ namespace exec {
 
         template <__decays_to<__t> _Self, class _Receiver>
           requires __only_single_values<__copy_cvref_t<_Self, _Sender>, env_of_t<_Receiver>>
+                && sequence_receiver_of<
+                     _Receiver,
+                     __completion_sigs<__copy_cvref_t<_Self, _Sender>, env_of_t<_Receiver>>>
                 && sequence_sender_to<__copy_cvref_t<_Self, _Sender>, __receiver_t<_Self, _Receiver>>
         friend auto tag_invoke(sequence_connect_t, _Self&& __self, _Receiver&& __rcvr)
           -> __operation_t<_Self, _Receiver> {
