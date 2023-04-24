@@ -64,7 +64,7 @@ namespace exec {
 
          private:
           template <class _Rcvr>
-            requires sequence_receiver_of<_Rcvr, completion_signatures<_Sigs...>>
+            requires sequence_receiver_of<_Rcvr, _NextSigs>
                   && (__callable<__query_vfun_fn<_Rcvr>, _Queries> && ...)
           friend const __t* tag_invoke(__create_vtable_t, __mtype<__t>, __mtype<_Rcvr>) noexcept {
             static const __t __vtable_{
@@ -155,6 +155,7 @@ namespace exec {
         __unique_operation_storage (*__sequence_connect_)(void*, __receiver_ref_t);
        private:
         template <class _Sender>
+          requires sequence_sender_to<_Sender, __receiver_ref_t>
         friend const __vtable*
           tag_invoke(__create_vtable_t, __mtype<__vtable>, __mtype<_Sender>) noexcept {
           static const __vtable __vtable_{
@@ -204,7 +205,7 @@ namespace exec {
         __t& operator=(__t&&) = default;
 
         template <__not_decays_to<__t> _Sender>
-          // requires sequence_sender_to<_Sender, __receiver_ref_t>
+          requires sequence_sender_to<_Sender, __receiver_ref_t>
         __t(_Sender&& __sndr)
           : __storage_{(_Sender&&) __sndr} {
         }
@@ -248,10 +249,7 @@ namespace exec {
     using __t = any_sequence_receiver_ref;
     using __id = any_sequence_receiver_ref;
 
-    template <
-      stdexec::
-        __none_of<any_sequence_receiver_ref, const any_sequence_receiver_ref, __env_t, const __env_t>
-          _Receiver>
+    template <stdexec::__not_decays_to<any_sequence_receiver_ref> _Receiver>
       requires sequence_receiver_of<_Receiver, _Completions>
     any_sequence_receiver_ref(_Receiver& __receiver) noexcept
       : __receiver_(__receiver) {
@@ -260,7 +258,8 @@ namespace exec {
     template <auto... _SenderQueries>
     class any_sender {
       using __sender_base = stdexec::__t<
-        __any::__sequence_sender<_Completions, queries<_SenderQueries...>, queries<_ReceiverQueries...>>>;
+        __any::
+          __sequence_sender<_Completions, queries<_SenderQueries...>, queries<_ReceiverQueries...>>>;
       __sender_base __sender_;
 
       template <class _Tag, stdexec::__decays_to<any_sender> Self, class... _As>

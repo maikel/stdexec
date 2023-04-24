@@ -806,7 +806,7 @@ namespace exec {
       using completion_signatures = typename __sender_base::completion_signatures;
 
       template <class _Sender>
-        requires(!stdexec::__decays_to<_Sender, any_sender>) && stdexec::sender<_Sender>
+        requires(!stdexec::__decays_to<_Sender, any_sender>) && stdexec::sender_to<_Sender, __receiver_base>
       any_sender(_Sender&& __sender) noexcept(
         stdexec::__nothrow_constructible_from<__sender_base, _Sender>)
         : __sender_((_Sender&&) __sender) {

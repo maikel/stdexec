@@ -82,11 +82,11 @@ namespace exec {
         }
 
         template <same_as<set_error_t> _SetError, same_as<__t> _Self, class _Error>
-          requires __callable<_SetError, _ItemReceiver&&, _Error>
+          requires __callable<set_stopped_t, _ItemReceiver&&>
         friend void tag_invoke(_SetError, _Self&& __self, _Error&& __error) noexcept {
           __self.__op_->__on_parent_stop_.reset();
           __self.__op_->__on_item_rcvr_stop_.reset();
-          __self.__op_->__notify_error(static_cast<_Error&&>(__error));
+          __self.__op_->__parent_op_->__notify_error(static_cast<_Error&&>(__error));
           stdexec::set_stopped(static_cast<_ItemReceiver&&>(__self.__op_->__item_rcvr_));
         }
 
@@ -121,7 +121,7 @@ namespace exec {
         }
 
         template <same_as<set_error_t> _SetError, same_as<__t> _Self, class _Error>
-          requires __callable<_SetError, _ItemReceiver&&, _Error>
+          requires __callable<set_stopped_t, _ItemReceiver&&>
         friend void tag_invoke(_SetError, _Self&& __self, _Error&& __error) noexcept {
           __self.__op_->__parent_op_->__notify_error(static_cast<_Error&&>(__error));
           __self.__op_->__on_parent_stop_.reset();
@@ -238,7 +238,7 @@ namespace exec {
           _ReceiverId,
           _ErrorsVariant>>;
 
-        template <__decays_to<__t> _Self, class _ItemReceiver>
+        template <__decays_to<__t> _Self, receiver_of<completion_signatures> _ItemReceiver>
           requires sender_to<_Item, __item_receiver_t<_Self, _ItemReceiver>>
         friend auto tag_invoke(connect_t, _Self&& __self, _ItemReceiver&& __item_rcvr) noexcept
           -> __sub_op_t<_Self, _ItemReceiver> {
@@ -359,8 +359,8 @@ namespace exec {
     using __errors_variant_t = __gather_signal<
       set_error_t,
       __completion_sigs<_Sender, _Env>,
-      __q<__mfront>,
-      __mcompose<__nullable_variant_t, __q<__decay_t>>>;
+      __q<__decay_t>,
+      __nullable_variant_t>;
 
     template <class _SenderId>
     struct __sender {
@@ -409,6 +409,10 @@ namespace exec {
       __t<__sender<__id<__decay_t<_Sender>>>> operator()(_Sender&& __sender) const
         noexcept(__nothrow_decay_copyable<_Sender>) {
         return {static_cast<_Sender&&>(__sender)};
+      }
+
+      __binder_back<merge_each_sequence_t> operator()() const noexcept {
+        return {{}, {}, {}};
       }
     };
   }
