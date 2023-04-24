@@ -84,6 +84,8 @@ set(stdexec_test_sources
     # exec/test_file_handle.cpp
     exec/test_trampoline_scheduler.cpp
     exec/test_sequence_senders.cpp
+    exec/sequence/test_merge_each.cpp
+    exec/sequence/test_any_sequence.cpp
     exec/sequence/test_async_resource.cpp
     exec/sequence/test_filter_each.cpp
     exec/sequence/test_first_value.cpp
@@ -102,7 +104,8 @@ target_link_libraries(test.stdexec
     STDEXEC::stdexec
     $<TARGET_NAME_IF_EXISTS:STDEXEC::tbbexec>
     stdexec_executable_flags
-    Catch2::Catch2)
+    Catch2::Catch2
+    anl)
 
 # Discover the Catch2 test built by the application
 include(${Catch2_SOURCE_DIR}/contrib/Catch.cmake)
