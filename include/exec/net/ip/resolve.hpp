@@ -18,6 +18,7 @@
 
 #include "../../../stdexec/execution.hpp"
 #include "../../sequence_senders.hpp"
+#include "../../inline_scheduler.hpp"
 
 #include "./address.hpp"
 
@@ -29,6 +30,51 @@
 
 #include <string>
 #include <string_view>
+
+namespace exec::net::ip {
+  enum class gaierrc {
+    invalid_flags = EAI_BADFLAGS,
+    unknown_name = EAI_NONAME,
+    temporary_failure = EAI_AGAIN,
+    non_recoverable_failure = EAI_FAIL,
+    family_not_supported = EAI_FAMILY,
+    socktype_not_supported = EAI_SOCKTYPE,
+    service_not_supported = EAI_SERVICE,
+    memory_allocation_failure = EAI_MEMORY,
+    system_error = EAI_SYSTEM,
+    argument_buffer_overflow = EAI_OVERFLOW,
+    no_address = EAI_NODATA,
+    address_family_not_supported = EAI_ADDRFAMILY,
+    in_progress = EAI_INPROGRESS,
+    canceled = EAI_CANCELED,
+    not_canceled = EAI_NOTCANCELED,
+    all_done = EAI_ALLDONE,
+    interrupted = EAI_INTR,
+    idn_encode = EAI_IDN_ENCODE
+  };
+}
+
+namespace std {
+  template <>
+  struct is_error_code_enum<exec::net::ip::gaierrc> : true_type { };
+}
+
+namespace exec::net::ip {
+  struct resolver_error_category_t : std::error_category {
+    const char* name() const noexcept override {
+      return "resolver";
+    }
+
+    std::string message(int __ec) const override {
+      return ::gai_strerror(__ec);
+    }
+  };
+
+  const resolver_error_category_t& resolver_error_category() noexcept {
+    static const resolver_error_category_t __impl{};
+    return __impl;
+  }
+}
 
 namespace exec::net::ip {
   enum class resolver_flags {
@@ -160,6 +206,10 @@ namespace exec::net::ip {
       }
     }
 
+    operator net::ip::endpoint () const noexcept {
+      return __endpoint_;
+    }
+
     const net::ip::endpoint& endpoint() const noexcept {
       return __endpoint_;
     }
@@ -182,12 +232,14 @@ namespace exec::net::ip {
 namespace exec::async {
   namespace __resolve {
     template <class _Scheduler, class _Receiver>
-    struct __operation_base;
+    struct __operation {
+      struct __t;
+    };
 
     template <class _Scheduler, class _Receiver>
     struct __next_receiver {
       struct __t {
-        __operation_base<_Scheduler, _Receiver>* __op_{};
+        stdexec::__t<__operation<_Scheduler, _Receiver>>* __op_{};
 
         template <std::same_as<stdexec::set_value_t> _SetValue, std::same_as<__t> _Self>
         friend void tag_invoke(_SetValue, _Self&& __self) noexcept {
@@ -229,26 +281,37 @@ namespace exec::async {
     };
 
     template <class _Scheduler, class _Receiver>
-    struct __operation_base : stdexec::__immovable {
+    struct __operation<_Scheduler, _Receiver>::__t {
+      using __id = __operation;
+
+      using __just_result = decltype(stdexec::just(stdexec::__declval<net::ip::resolver_result>()));
+      using __next_sender = exec::__next_sender_of_t<_Receiver&, __just_result>;
+      using __next_rcvr_t = stdexec::__t<__next_receiver<_Scheduler, _Receiver>>;
+
       [[no_unique_address]] _Receiver __receiver_;
       _Scheduler __scheduler_;
       net::ip::resolver_query __query_;
       ::gaicb __request_{};
       ::addrinfo* __result_iter_{};
-      using __on_scheduler_t = decltype(stdexec::on(
-        stdexec::__declval<const _Scheduler&>(),
-        stdexec::just(stdexec::__declval<net::ip::resolver_result>())));
-      using __next_on_scheduler_t = exec::__next_sender_of_t<_Receiver&, __on_scheduler_t>;
-      using __next_rcvr_t = stdexec::__t<__next_receiver<_Scheduler, _Receiver>>;
-      std::optional<stdexec::connect_result_t<__next_on_scheduler_t, __next_rcvr_t>> __next_op_{};
 
-      explicit __operation_base(
-        _Receiver&& __receiver,
+      std::optional<stdexec::connect_result_t<__next_sender, __next_rcvr_t>> __next_op_{};
+      ::gaicb* __requests_[1]{&this->__request_};
+      sigevent_t __sigev{};
+
+      explicit __t(
         _Scheduler&& __scheduler,
-        net::ip::resolver_query __query) noexcept
+        net::ip::resolver_query __query,
+        _Receiver&& __receiver)
         : __receiver_{static_cast<_Receiver&&>(__receiver)}
         , __scheduler_{static_cast<_Scheduler&&>(__scheduler)}
         , __query_{static_cast<net::ip::resolver_query&&>(__query)} {
+        this->__request_.ar_name = this->__query_.host_name().c_str();
+        this->__request_.ar_service = this->__query_.service_name().c_str();
+        this->__request_.ar_request = &this->__query_.hints();
+        this->__request_.ar_result = nullptr;
+        this->__sigev.sigev_notify = SIGEV_THREAD;
+        this->__sigev.sigev_value.sival_ptr = this;
+        this->__sigev.sigev_notify_function = &__t::__notify;
       }
 
       void __start_next() noexcept {
@@ -256,62 +319,33 @@ namespace exec::async {
           auto __res = //
             stdexec::just(net::ip::resolver_result{
               this->__result_iter_, this->__query_.host_name(), this->__query_.service_name()});
-          return stdexec::connect(
-            exec::set_next(this->__receiver_, stdexec::on(this->__scheduler_, __res)),
-            __next_rcvr_t{this});
+          return stdexec::connect(exec::set_next(this->__receiver_, __res), __next_rcvr_t{this});
         }});
         stdexec::start(__next_op);
       }
-    };
 
-    template <class _Scheduler, class _Receiver>
-    struct __operation {
-      struct __t : __operation_base<_Scheduler, _Receiver> {
-        using __id = __operation;
-
-        ::gaicb* __requests_[1]{&this->__request_};
-        sigevent_t __sigev{};
-
-        explicit __t(
-          _Scheduler&& __scheduler,
-          net::ip::resolver_query __query,
-          _Receiver&& __receiver)
-          : __operation_base<_Scheduler, _Receiver>{
-            static_cast<_Receiver&&>(__receiver),
-            static_cast<_Scheduler&&>(__scheduler),
-            static_cast<net::ip::resolver_query&&>(__query)} {
-          this->__request_.ar_name = this->__query_.host_name().c_str();
-          this->__request_.ar_service = this->__query_.service_name().c_str();
-          this->__request_.ar_request = &this->__query_.hints();
-          this->__request_.ar_result = nullptr;
-          this->__sigev.sigev_notify = SIGEV_THREAD;
-          this->__sigev.sigev_value.sival_ptr = this;
-          this->__sigev.sigev_notify_function = &__t::__notify;
-        }
-
-        static void __notify(sigval __sigval) noexcept {
-          auto& __self = *static_cast<__t*>(__sigval.sival_ptr);
-          int rc = ::gai_error(__self.__requests_[0]);
-          if (rc == 0) {
-            if (__self.__request_.ar_result) {
-              __self.__result_iter_ = __self.__request_.ar_result;
-              __self.__start_next();
-            } else {
-              stdexec::set_value(static_cast<_Receiver&&>(__self.__receiver_));
-            }
-          } else if (rc == EAI_CANCELED) {
-            stdexec::set_stopped(static_cast<_Receiver&&>(__self.__receiver_));
-          } else if (rc != EAI_INPROGRESS) {
-            stdexec::set_error(
-              static_cast<_Receiver&&>(__self.__receiver_),
-              std::error_code{rc, std::system_category()});
+      static void __notify(sigval __sigval) noexcept {
+        auto& __self = *static_cast<__t*>(__sigval.sival_ptr);
+        int rc = ::gai_error(__self.__requests_[0]);
+        if (rc == 0) {
+          if (__self.__request_.ar_result) {
+            __self.__result_iter_ = __self.__request_.ar_result;
+            __self.__start_next();
+          } else {
+            stdexec::set_value(static_cast<_Receiver&&>(__self.__receiver_));
           }
+        } else if (rc == EAI_CANCELED) {
+          stdexec::set_stopped(static_cast<_Receiver&&>(__self.__receiver_));
+        } else if (rc != EAI_INPROGRESS) {
+          stdexec::set_error(
+            static_cast<_Receiver&&>(__self.__receiver_),
+            std::error_code{rc, net::ip::resolver_error_category()});
         }
+      }
 
-        friend void tag_invoke(stdexec::start_t, __t& __self) noexcept {
-          ::getaddrinfo_a(GAI_NOWAIT, __self.__requests_, 1, &__self.__sigev);
-        }
-      };
+      friend void tag_invoke(stdexec::start_t, __t& __self) noexcept {
+        ::getaddrinfo_a(GAI_NOWAIT, __self.__requests_, 1, &__self.__sigev);
+      }
     };
 
     template <class _Scheduler, class _Env>
@@ -358,7 +392,7 @@ namespace exec::async {
   struct resolve_t {
     template <class _Resolver>
       requires stdexec::tag_invocable<resolve_t, _Resolver, const net::ip::resolver_query&>
-    auto operator()(_Resolver&& __resolver, const net::ip::resolver_query& __query) const
+    auto operator()(_Resolver&& __resolver, net::ip::resolver_query __query) const
       noexcept(stdexec::nothrow_tag_invocable<resolve_t, _Resolver, const net::ip::resolver_query&>)
         -> stdexec::tag_invoke_result_t<resolve_t, _Resolver, const net::ip::resolver_query&> {
       return tag_invoke(*this, static_cast<_Resolver&&>(__resolver), __query);
@@ -379,6 +413,14 @@ namespace exec::async {
     auto operator()(_Scheduler __scheduler, _Arg&& __arg, _Args&&... __args) const {
       return this->operator()(
         __scheduler,
+        net::ip::resolver_query{static_cast<_Arg&&>(__arg), static_cast<_Args&&>(__args)...});
+    }
+
+    template <class _Arg, class... _Args>
+      requires (!stdexec::scheduler<_Arg>) && std::constructible_from<net::ip::resolver_query, _Arg, _Args...>
+    auto operator()(_Arg&& __arg, _Args&&... __args) const {
+      return this->operator()(
+        inline_scheduler(),
         net::ip::resolver_query{static_cast<_Arg&&>(__arg), static_cast<_Args&&>(__args)...});
     }
   };
