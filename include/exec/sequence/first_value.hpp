@@ -43,7 +43,7 @@ namespace exec {
 
       using _Receiver = __t<_ReceiverId>;
       using __on_stop =
-        stop_token_of_t<env_of_t<_Receiver&>>::template callback_type<__on_stop_requested>;
+        typename stop_token_of_t<env_of_t<_Receiver&>>::template callback_type<__on_stop_requested>;
 
       [[no_unique_address]] _Receiver __rcvr_;
       std::atomic<__state> __state_{__state::__empty};
@@ -117,7 +117,7 @@ namespace exec {
       in_place_stop_source __stop_source_{};
 
       using __on_item_stop =
-        stop_token_of_t<env_of_t<_ItemReceiver&>>::template callback_type<__on_stop_requested>;
+        typename stop_token_of_t<env_of_t<_ItemReceiver&>>::template callback_type<__on_stop_requested>;
       std::optional<__on_item_stop> __on_item_stop_{};
       std::optional<in_place_stop_token::callback_type<__on_stop_requested>> __on_parent_stop_{};
     };
