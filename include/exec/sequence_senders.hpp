@@ -57,7 +57,7 @@ namespace exec {
   using __sequence_to_sender_sigs_t = stdexec::__try_make_completion_signatures<
     __sequence_sender::__some_sender_of<_Signatures>,
     _Env,
-    stdexec::completion_signatures<>,
+    stdexec::completion_signatures<stdexec::set_value_t()>,
     stdexec::__mconst<stdexec::completion_signatures<stdexec::set_value_t()>>>;
 
   template <class _Receiver, class _Signatures>
@@ -67,7 +67,7 @@ namespace exec {
       stdexec::__try_make_completion_signatures<
         __sequence_sender::__some_sender_of<_Signatures>,
         stdexec::env_of_t<_Receiver>,
-        stdexec::completion_signatures<>,
+        stdexec::completion_signatures<stdexec::set_value_t()>,
         stdexec::__mconst<stdexec::completion_signatures<stdexec::set_value_t()>>>>
     && stdexec::__callable<
       set_next_t,
@@ -75,9 +75,11 @@ namespace exec {
       __sequence_sender::__some_sender_of<_Signatures>>;
 
   template <class _Receiver, class _Sender>
-  concept sequence_receiver_from = sequence_receiver_of<
-    _Receiver,
-    stdexec::completion_signatures_of_t<_Sender, stdexec::env_of_t<_Receiver>>>;
+  concept sequence_receiver_from =
+    stdexec::sender_in<_Sender, stdexec::env_of_t<_Receiver>>
+    && sequence_receiver_of<
+      _Receiver,
+      stdexec::completion_signatures_of_t<_Sender, stdexec::env_of_t<_Receiver>>>;
 
   namespace __sequence_sender {
     struct sequence_connect_t;
