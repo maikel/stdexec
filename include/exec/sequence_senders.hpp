@@ -21,12 +21,39 @@ namespace exec {
   namespace __sequence_sender {
     using namespace stdexec;
 
+    template <class _Haystack>
+    struct __mall_contained_in_impl {
+      template <class... _Needles>
+      using __f = __mand<__mapply<__contains<_Needles>, _Haystack>...>;
+    };
+
+    template <class _Needles, class _Haystack>
+    using __mall_contained_in = __mapply<__mall_contained_in_impl<_Haystack>, _Needles>;
+
+    template <class _Needles, class _Haystack>
+    concept __all_contained_in = __mall_contained_in<_Needles, _Haystack>::value;
+
+
+    // This concept checks if a given sender satisfies the requirements to be returned from `set_next`.
+    template <class _Sender, class _Env = empty_env>
+    concept next_sender =      //
+      sender_in<_Sender, _Env> //
+      && __all_contained_in<
+        completion_signatures_of_t<_Sender, _Env>,
+        completion_signatures<set_value_t(), set_stopped_t()>>;
+
+    // This is a sequence-receiver CPO that is used to apply algorithms on an input sender and it
+    // returns a next-sender. `set_next` is usually called in a context where a sender will be
+    // connected to a receiver. Since calling `set_next` usually involves constructing senders it
+    // is allowed to throw an excpetion, which needs to be handled by a calling sequence-operation.
+    // The returned object is a sender that can complete with `set_value_t()` or `set_stopped_t()`.
     struct set_next_t {
       template <receiver _Receiver, sender _Item>
         requires tag_invocable<set_next_t, _Receiver&, _Item>
-      auto operator()(_Receiver& __rcvr, _Item&& __item) const noexcept
-        -> tag_invoke_result_t<set_next_t, _Receiver&, _Item> {
-        static_assert(nothrow_tag_invocable<set_next_t, _Receiver&, _Item>);
+      auto operator()(_Receiver& __rcvr, _Item&& __item) const
+        noexcept(nothrow_tag_invocable<set_next_t, _Receiver&, _Item>)
+          -> tag_invoke_result_t<set_next_t, _Receiver&, _Item> {
+        static_assert(next_sender<tag_invoke_result_t<set_next_t, _Receiver&, _Item>>);
         return tag_invoke(*this, __rcvr, (_Item&&) __item);
       }
     };
@@ -45,30 +72,29 @@ namespace exec {
     struct __some_sender_of {
       using is_sender = void;
       using completion_signatures = _Sigs;
+      using __id = __some_sender_of;
+      using __t = __some_sender_of;
 
       template <class R>
       friend __nop_operation tag_invoke(connect_t, __some_sender_of, R&&) {
         return {};
       }
     };
-  }
+  } // namespace __sequence_sender
 
   template <class _Signatures, class _Env = stdexec::empty_env>
   using __sequence_to_sender_sigs_t = stdexec::__try_make_completion_signatures<
     __sequence_sender::__some_sender_of<_Signatures>,
     _Env,
     stdexec::completion_signatures<stdexec::set_value_t()>,
-    stdexec::__mconst<stdexec::completion_signatures<stdexec::set_value_t()>>>;
+    stdexec::__mconst<stdexec::completion_signatures<>>>;
 
   template <class _Receiver, class _Signatures>
   concept sequence_receiver_of =
-    stdexec::receiver_of<
+    stdexec::receiver<_Receiver>
+    && stdexec::receiver_of<
       _Receiver,
-      stdexec::__try_make_completion_signatures<
-        __sequence_sender::__some_sender_of<_Signatures>,
-        stdexec::env_of_t<_Receiver>,
-        stdexec::completion_signatures<stdexec::set_value_t()>,
-        stdexec::__mconst<stdexec::completion_signatures<stdexec::set_value_t()>>>>
+      __sequence_to_sender_sigs_t<_Signatures, stdexec::env_of_t<_Receiver>>>
     && stdexec::__callable<
       set_next_t,
       stdexec::__decay_t<_Receiver>&,
