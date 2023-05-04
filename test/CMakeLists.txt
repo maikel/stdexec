@@ -18,6 +18,7 @@ set(stdexec_test_sources
     test_main.cpp
     exec/sequence/test_ignore_all.cpp
     exec/sequence/test_transform_each.cpp
+    exec/sequence/test_repeat.cpp
     stdexec/cpos/test_cpo_bulk.cpp
     stdexec/cpos/test_cpo_ensure_started.cpp
     stdexec/cpos/test_cpo_receiver.cpp
