@@ -15,7 +15,8 @@
  */
 #pragma once
 
-#include <stdexec/execution.hpp>
+#include "../stdexec/execution.hpp"
+#include "./sequence_senders.hpp"
 
 #include <cstddef>
 
@@ -869,6 +870,12 @@ namespace exec {
 
       struct __t {
         __operation_base<_Receiver>* __op_;
+
+        template <same_as<set_next_t> _SetNext, same_as<__t> _Self, class _Item>
+          requires __callable<_SetNext, _Receiver&, _Item>
+        STDEXEC_DEFINE_CUSTOM(auto set_next)(this _Self& __self, _SetNext, _Item&& __item) {
+          return _SetNext{}(__self.__op_->__rcvr_, static_cast<_Item&&>(__item));
+        }
 
         template <same_as<set_value_t> _SetValue, same_as<__t> _Self, class... _Args>
           requires __callable<_SetValue, _Receiver&&, _Args...>
