@@ -636,6 +636,9 @@ namespace exec {
     STDEXEC_ASSERT(threadIndex < threadCount_);
     threadStates_[threadIndex] = local_state;
     start_latch_.arrive_and_wait();
+    scope_guard stop_latch_guard{[this]() noexcept {
+      stop_latch_.arrive_and_wait();
+    }};
     local_state->set_victims();
     while (true) {
       // Make a blocking call to de-queue a task if we don't already have one.
@@ -645,7 +648,6 @@ namespace exec {
       }
       task->__execute(task, queueIndex);
     }
-    stop_latch_.arrive_and_wait();
   }
 
   template <class Allocator>
