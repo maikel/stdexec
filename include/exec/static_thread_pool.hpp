@@ -50,29 +50,29 @@ namespace exec {
 
   namespace __pool {
     inline thread_local const std::thread::id this_thread_id = std::this_thread::get_id();
+  }
 
-    // Splits `n` into `size` chunks distributing `n % size` evenly between ranks.
-    // Returns `[begin, end)` range in `n` for a given `rank`.
-    // Example:
-    // ```cpp
-    // //         n_items  thread  n_threads
-    // even_share(     11,      0,         3); // -> [0,  4) -> 4 items
-    // even_share(     11,      1,         3); // -> [4,  8) -> 4 items
-    // even_share(     11,      2,         3); // -> [8, 11) -> 3 items
-    // ```
-    template <class Shape>
-    std::pair<Shape, Shape> even_share(Shape n, std::uint32_t rank, std::uint32_t size) noexcept {
-      const auto avg_per_thread = n / size;
-      const auto n_big_share = avg_per_thread + 1;
-      const auto big_shares = n % size;
-      const auto is_big_share = rank < big_shares;
-      const auto begin = is_big_share
-                         ? n_big_share * rank
-                         : n_big_share * big_shares + (rank - big_shares) * avg_per_thread;
-      const auto end = begin + (is_big_share ? n_big_share : avg_per_thread);
+  // Splits `n` into `size` chunks distributing `n % size` evenly between ranks.
+  // Returns `[begin, end)` range in `n` for a given `rank`.
+  // Example:
+  // ```cpp
+  // //         n_items  thread  n_threads
+  // even_share(     11,      0,         3); // -> [0,  4) -> 4 items
+  // even_share(     11,      1,         3); // -> [4,  8) -> 4 items
+  // even_share(     11,      2,         3); // -> [8, 11) -> 3 items
+  // ```
+  template <class Shape>
+  std::pair<Shape, Shape> even_share(Shape n, std::uint32_t rank, std::uint32_t size) noexcept {
+    const auto avg_per_thread = n / size;
+    const auto n_big_share = avg_per_thread + 1;
+    const auto big_shares = n % size;
+    const auto is_big_share = rank < big_shares;
+    const auto begin = is_big_share
+                       ? n_big_share * rank
+                       : n_big_share * big_shares + (rank - big_shares) * avg_per_thread;
+    const auto end = begin + (is_big_share ? n_big_share : avg_per_thread);
 
-      return std::make_pair(begin, end);
-    }
+    return std::make_pair(begin, end);
   }
 
 #if STDEXEC_HAS_STD_RANGES()
@@ -699,7 +699,7 @@ namespace exec {
     }
     std::size_t nThreads = available_parallelism();
     for (std::size_t i = 0; i < nThreads; ++i) {
-      auto [i0, iEnd] = __pool::even_share(tasks_size, i, available_parallelism());
+      auto [i0, iEnd] = even_share(tasks_size, i, available_parallelism());
       if (i0 == iEnd) {
         continue;
       }
@@ -849,7 +849,7 @@ namespace exec {
         // result = try_remote();
         // if (result.task) {
         //   lock.unlock();
-        //   // state_.store(state::running);
+        //   state_.store(state::running);
         //   return result;
         // }
         cv_.wait(lock);
@@ -1005,7 +1005,7 @@ namespace exec {
           auto total_threads = sh_state.num_agents_required();
 
           auto computation = [&](auto&... args) {
-            auto [begin, end] = __pool::even_share(sh_state.shape_, tid, total_threads);
+            auto [begin, end] = even_share(sh_state.shape_, tid, total_threads);
             for (Shape i = begin; i < end; ++i) {
               sh_state.fn_(i, args...);
             }
