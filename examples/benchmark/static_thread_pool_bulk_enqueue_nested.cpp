@@ -31,7 +31,7 @@ struct RunThread {
     std::span<char> buffer,
 #endif
     std::atomic<bool>& stop) {
-    auto scheduler = pool.get_scheduler();
+    auto scheduler = pool.get_scheduler_for_worder_id(tid);
     while (true) {
       barrier.arrive_and_wait();
       if (stop.load()) {
