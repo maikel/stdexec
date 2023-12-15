@@ -319,7 +319,7 @@ namespace exec {
     struct scheduler {
       using __t = scheduler;
       using __id = scheduler;
-      bool operator==(const scheduler&) const = default;
+      bool operator==(const scheduler&) const noexcept = default;
 
      private:
       template <class ReceiverId, class... OpCondition>
@@ -355,7 +355,7 @@ namespace exec {
           }
 
           scheduler make_scheduler_() const {
-            return basic_static_thread_pool::scheduler{queue_ref_};
+            return scheduler{queue_ref_};
           }
         };
 
@@ -538,7 +538,7 @@ namespace exec {
       bool stopRequested_{false};
     };
 
-    void run(std::uint32_t index, numa_policy* numa) noexcept;
+    void run(std::uint32_t index);
     void join() noexcept;
 
     alignas(64) std::atomic<std::uint32_t> numThiefs_{};
@@ -619,14 +619,13 @@ namespace exec {
     : remotes_(*this)
     , threadCount_(threadCount)
     , params_(params)
-    , threadStates_(threadCount)
-    , numa_{numa} {
+    , threadStates_(threadCount) {
     STDEXEC_ASSERT(threadCount > 0);
 
     threads_.reserve(threadCount);
     try {
       for (std::uint32_t i = 0; i < threadCount; ++i) {
-        threads_.emplace_back([this, i, numa] { run(i, numa); });
+        threads_.emplace_back([this, i] { run(i); });
       }
       start_latch_.arrive_and_wait();
     } catch (...) {
@@ -658,7 +657,7 @@ namespace exec {
   }
 
   template <class Allocator>
-  void basic_static_thread_pool<Allocator>::run(std::uint32_t threadIndex) noexcept {
+  void basic_static_thread_pool<Allocator>::run(std::uint32_t threadIndex) {
     // TODO bind this thread to a specific numa noda if possible
     // Memory allocations happen on the numa node of the thread.
     allocator_t<thread_state> allocator{allocator_};
@@ -709,18 +708,6 @@ namespace exec {
       (*correct_queue)[threadIndex].push_front(task);
       threadStates_[threadIndex]->notify();
     }
-    const std::size_t threadIndex = random_thread_index_with_constraints(constraints);
-    queue.queues_[threadIndex].push_front(task);
-    threadStates_[threadIndex]->notify();
-  }
-
-  inline void static_thread_pool::enqueue(
-    remote_queue& queue,
-    task_base* task,
-    std::size_t threadIndex) noexcept {
-    threadIndex %= threadCount_;
-    queue.queues_[threadIndex].push_front(task);
-    threadStates_[threadIndex]->notify();
   }
 
   template <class Allocator>
@@ -947,8 +934,6 @@ namespace exec {
     remote_queue_ref<basic_static_thread_pool> queue_ref_;
     std::tuple<Condition...> condition_;
     Receiver receiver_;
-    std::size_t threadIndex_{};
-    nodemask constraints_{};
 
     explicit operation(
       remote_queue_ref<basic_static_thread_pool> queue,
