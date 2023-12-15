@@ -31,11 +31,13 @@
 #include "./sequence_senders.hpp"
 #include "./sequence/iterate.hpp"
 
+#include <algorithm>
 #include <atomic>
 #include <condition_variable>
 #include <exception>
 #include <latch>
 #include <mutex>
+#include <span>
 #include <thread>
 #include <type_traits>
 #include <vector>
@@ -327,7 +329,7 @@ namespace exec {
        public:
         using __t = sender;
         using __id = sender;
-        using is_sender = void;
+        using sender_concept = stdexec::sender_t;
         using completion_signatures =
           stdexec::completion_signatures< stdexec::set_value_t(), stdexec::set_stopped_t()>;
        private:
@@ -536,13 +538,13 @@ namespace exec {
       bool stopRequested_{false};
     };
 
-    void run(std::uint32_t index) noexcept;
+    void run(std::uint32_t index, numa_policy* numa) noexcept;
     void join() noexcept;
 
     alignas(64) std::atomic<std::uint32_t> numThiefs_{};
     alignas(64) remote_queue_list<basic_static_thread_pool> remotes_;
     std::uint32_t threadCount_;
-    std::uint32_t maxSteals_{(threadCount_ + 1) << 1};
+    std::uint32_t maxSteals_{threadCount_ + 1};
     bwos_params params_;
     vector_t<std::thread> threads_;
     std::latch start_latch_{threadCount_ + 1};
@@ -617,13 +619,14 @@ namespace exec {
     : remotes_(*this)
     , threadCount_(threadCount)
     , params_(params)
-    , threadStates_(threadCount) {
+    , threadStates_(threadCount)
+    , numa_{numa} {
     STDEXEC_ASSERT(threadCount > 0);
 
     threads_.reserve(threadCount);
     try {
       for (std::uint32_t i = 0; i < threadCount; ++i) {
-        threads_.emplace_back([this, i] { run(i); });
+        threads_.emplace_back([this, i, numa] { run(i, numa); });
       }
       start_latch_.arrive_and_wait();
     } catch (...) {
@@ -706,6 +709,18 @@ namespace exec {
       (*correct_queue)[threadIndex].push_front(task);
       threadStates_[threadIndex]->notify();
     }
+    const std::size_t threadIndex = random_thread_index_with_constraints(constraints);
+    queue.queues_[threadIndex].push_front(task);
+    threadStates_[threadIndex]->notify();
+  }
+
+  inline void static_thread_pool::enqueue(
+    remote_queue& queue,
+    task_base* task,
+    std::size_t threadIndex) noexcept {
+    threadIndex %= threadCount_;
+    queue.queues_[threadIndex].push_front(task);
+    threadStates_[threadIndex]->notify();
   }
 
   template <class Allocator>
@@ -932,6 +947,8 @@ namespace exec {
     remote_queue_ref<basic_static_thread_pool> queue_ref_;
     std::tuple<Condition...> condition_;
     Receiver receiver_;
+    std::size_t threadIndex_{};
+    nodemask constraints_{};
 
     explicit operation(
       remote_queue_ref<basic_static_thread_pool> queue,
@@ -973,7 +990,7 @@ namespace exec {
   struct basic_static_thread_pool<Allocator>::bulk_sender {
     using Sender = stdexec::__t<SenderId>;
     using Fun = stdexec::__t<FunId>;
-    using is_sender = void;
+    using sender_concept = stdexec::sender_t;
 
     static_thread_pool& pool_;
     Sender sndr_;
@@ -1120,7 +1137,8 @@ namespace exec {
     std::vector<bulk_task> tasks_;
 
     std::uint32_t num_agents_required() const {
-      return std::min(shape_, static_cast<Shape>(pool_.available_parallelism()));
+      return static_cast<std::uint32_t>(
+        std::min(shape_, static_cast<Shape>(pool_.available_parallelism())));
     }
 
     template <class F>
@@ -1299,7 +1317,7 @@ namespace exec {
     struct item_sender {
       struct __t {
         using __id = item_sender;
-        using is_sender = void;
+        using sender_concept = stdexec::sender_t;
         using completion_signatures = stdexec::completion_signatures<stdexec::set_value_t(
           std::ranges::range_reference_t<Range>)>;
 
@@ -1451,7 +1469,7 @@ namespace exec {
      public:
       using __id = sequence;
 
-      using is_sender = sequence_tag;
+      using sender_concept = sequence_sender_t;
 
       using completion_signatures = stdexec::completion_signatures<
         stdexec::set_value_t(),
